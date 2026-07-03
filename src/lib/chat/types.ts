@@ -60,3 +60,18 @@ export type ChatResponse = {
   message: ChatMessage;
   result: ChatActionResult;
 };
+
+export type ExtractedFields = {
+  email?: string;
+  phone?: string;
+  name?: string;
+  address?: string;
+  relationship?: string;
+  authorizedToAct?: boolean;
+  preferredContactMethod?: string;
+  amountCents?: number;
+  dueDate?: string;
+  scheduledAt?: string;
+  reason?: string;
+};
+

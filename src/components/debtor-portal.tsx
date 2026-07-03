@@ -33,6 +33,7 @@ import { cn } from "@/lib/utils";
 
 type PortalProps = {
   fixture: LegacyAccountFixture;
+  initialContext?: AccountContext;
 };
 
 type View = "dashboard" | "conversations";
@@ -56,6 +57,7 @@ function formatCurrency(amountCents: number, currency: string) {
 }
 
 function formatDate(date: string) {
+  if (!date) return "";
   return new Intl.DateTimeFormat("en-IE", {
     day: "numeric",
     month: "long",
@@ -64,6 +66,7 @@ function formatDate(date: string) {
 }
 
 function formatDateTime(date: string) {
+  if (!date) return "";
   return new Intl.DateTimeFormat("en-IE", {
     day: "numeric",
     month: "short",
@@ -86,6 +89,7 @@ function formatAddress(address: AccountContext["account"]["address"]) {
 }
 
 function formatStatus(value: string) {
+  if (!value) return "";
   return value
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -93,15 +97,17 @@ function formatStatus(value: string) {
 }
 
 function getInitials(firstName: string, lastName: string) {
-  return `${firstName[0] ?? ""}${lastName[0] ?? ""}`;
+  return `${firstName ? firstName[0] : ""}${lastName ? lastName[0] : ""}`;
 }
 
-export function DebtorPortal({ fixture }: PortalProps) {
+export function DebtorPortal({ fixture, initialContext }: PortalProps) {
   const [activeView, setActiveView] = useState<View>("dashboard");
   const [draft, setDraft] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const accountContext = normalizeLegacyFixture(fixture);
+  const [accountContext, setAccountContext] = useState<AccountContext>(
+    initialContext || normalizeLegacyFixture(fixture)
+  );
   const fullName = `${accountContext.account.accountHolderFirstName} ${accountContext.account.accountHolderLastName}`;
 
   const handleSendMessage = async () => {
@@ -138,10 +144,15 @@ export function DebtorPortal({ fixture }: PortalProps) {
       const body = (await response.json()) as
         | ChatResponse
         | { error?: string };
+      
       const assistantReply =
-        "message" in body
+        body && "message" in body
           ? body.message.content
-          : body.error ?? "The chat API did not return a usable response.";
+          : ("error" in body ? body.error : null) ?? "The chat API did not return a usable response.";
+
+      if (body && "result" in body && body.result.account) {
+        setAccountContext(body.result.account);
+      }
 
       setMessages((currentMessages) => [
         ...currentMessages,
