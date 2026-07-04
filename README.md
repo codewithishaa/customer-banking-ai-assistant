@@ -27,6 +27,9 @@ The main seeded account is Jane Murphy for Example Energy Ireland.
 - Transaction history including seeded transactions and mocked payments.
 - Future call appointment booking.
 - Rejection of clearly past call appointment requests.
+- Safe fallback response for unrelated, unsupported, or unclear chatbot messages.
+- Specific missing-detail guidance for incomplete account update, related-person, payment, promise-to-pay, and call-booking requests.
+- Read-only shorthand support for related people, transactions, payments, and booked calls.
 - Resend notification email after successful account-changing actions.
 - Encrypted PDF attachment containing sensitive account details.
 - Notification attempt tracking in Supabase.
@@ -142,14 +145,17 @@ The server then:
 8. Returns a clear confirmation or safe fallback response to the user.
 
 Read-only actions do not create notification attempts. Invalid or rejected actions do not update Supabase and do not send notifications.
-
 ## Message Parsing and LLM Fallback
 
 The parser uses a hybrid design. It supports optional LLM-based structured extraction when a real provider key is configured, but all required challenge workflows are covered by a deterministic fallback parser.
 
 This keeps the system reliable, testable, and safe when LLM keys are missing. Every parsed action passes through explicit validation before database writes.
 
-For unsupported or ambiguous requests, the chatbot falls back to a safe response instead of guessing or performing risky account changes. The supported action set is intentionally limited to account lookup, contact updates, related people, promises to pay, mocked payments, transactions, call appointments, and notifications.
+For unsupported, unrelated, unclear, or incomplete requests, the chatbot returns a safe guidance response instead of guessing or performing risky account changes. These fallback and missing-detail responses do not update Supabase, do not create notification attempts, and do not send email/PDF notifications.
+
+Where possible, the bot gives the user an example format, such as how to update an address, add a related person, make a mocked payment, create a promise to pay, or book a future call.
+
+The supported action set is intentionally limited to account lookup, contact updates, related people, promises to pay, mocked payments, transactions, call appointments, and notifications.
 
 ## Validation Strategy
 
@@ -273,7 +279,7 @@ Because this challenge uses a newly verified sending domain and password-protect
 
 ## Tests
 
-The test suite includes 41 passing tests covering:
+The test suite includes 62 passing tests covering:
 
 - Parser/action logic
 - Account lookups
@@ -282,12 +288,17 @@ The test suite includes 41 passing tests covering:
 - Mocked payments
 - Transaction updates
 - Call appointments
+- Unsupported and incomplete message fallback behaviour
 - Notification boundary behaviour
 - PDF/email safety
 - LLM fallback behaviour
 
 Tests mock external side effects and do not depend on live Resend delivery, real inbox inspection, live LLM APIs, or real payment providers.
 
+Run tests with:
+
+```bash
+pnpm test
 Run tests with:
 
 ```bash
