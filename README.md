@@ -90,6 +90,12 @@ Account Portal <notifications@ishaborgaonkar.com>
 
 Do not commit real API keys, Resend keys, Supabase service-role keys, or generated PDF passwords.
 
+## Email Testing Note
+
+To test the Resend email notification and encrypted PDF attachment in the deployed application, set the account holder email address to a current personal working email address that you can access. After any successful account-changing action, the app sends a generic notification email to the current account holder email address with the encrypted PDF attached.
+
+Because the application uses a newly verified sending domain and password-protected PDF attachments, the notification email may occasionally appear in Spam or Promotions. When testing, please check the inbox, spam, and promotions folders.
+
 ## Architecture Overview
 
 The system follows a server-side action pipeline:
