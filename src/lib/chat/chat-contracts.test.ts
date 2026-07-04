@@ -584,7 +584,7 @@ describe("chat action acceptance contracts", () => {
       }
     });
 
-    it("address update triggers notification", async () => {
+    it("address update triggers notification and uses updated address in PDF snapshot", async () => {
       mockSendNotification.mockClear();
       const req = new Request("http://localhost/api/chat", {
         method: "POST",
@@ -595,6 +595,30 @@ describe("chat action acceptance contracts", () => {
       });
       await POST(req);
       expect(mockSendNotification).toHaveBeenCalled();
+      const payload = mockSendNotification.mock.calls[0][0];
+      expect(payload.accountSnapshot.account.address).toEqual({
+        line1: "12 Test Street",
+        line2: undefined,
+        city: "Dublin 2",
+        postalCode: "",
+        country: "Ireland",
+      });
+    });
+
+    it("invalid empty/short address does not update and does not trigger notification", async () => {
+      mockSendNotification.mockClear();
+      mockUpdateAccountHolder.mockClear();
+
+      const req = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "Change my address to ",
+        }),
+      });
+      await POST(req);
+      expect(mockUpdateAccountHolder).not.toHaveBeenCalled();
+      expect(mockSendNotification).not.toHaveBeenCalled();
     });
 
     it("related-person missing-details follow-up completes successfully", async () => {

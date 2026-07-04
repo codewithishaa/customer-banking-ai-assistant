@@ -209,11 +209,11 @@ export async function updateAccountHolder(
   if (updates.lastPaymentAmountCents !== undefined) dbUpdates.last_payment_amount_cents = updates.lastPaymentAmountCents;
 
   if (updates.address !== undefined) {
-    dbUpdates.address_line1 = updates.address.line1;
+    dbUpdates.address_line1 = updates.address.line1 || "";
     dbUpdates.address_line2 = updates.address.line2 || null;
-    dbUpdates.city = updates.address.city;
-    dbUpdates.postal_code = updates.address.postalCode;
-    dbUpdates.country = updates.address.country;
+    dbUpdates.city = updates.address.city || "";
+    dbUpdates.postal_code = updates.address.postalCode || "";
+    dbUpdates.country = updates.address.country || "";
   }
 
   const { error: updateErr } = await supabase

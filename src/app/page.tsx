@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import fixture from "../../fixtures/debtor-standard.json";
 import { fetchAccountContext } from "@/lib/account/db";
 import { DebtorPortal } from "@/components/debtor-portal";
