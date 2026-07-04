@@ -145,6 +145,7 @@ The server then:
 8. Returns a clear confirmation or safe fallback response to the user.
 
 Read-only actions do not create notification attempts. Invalid or rejected actions do not update Supabase and do not send notifications.
+
 ## Message Parsing and LLM Fallback
 
 The parser uses a hybrid design. It supports optional LLM-based structured extraction when a real provider key is configured, but all required challenge workflows are covered by a deterministic fallback parser.
@@ -295,10 +296,6 @@ The test suite includes 62 passing tests covering:
 
 Tests mock external side effects and do not depend on live Resend delivery, real inbox inspection, live LLM APIs, or real payment providers.
 
-Run tests with:
-
-```bash
-pnpm test
 Run tests with:
 
 ```bash
