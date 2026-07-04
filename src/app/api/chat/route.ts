@@ -151,7 +151,8 @@ export async function POST(request: Request) {
         const text = message.toLowerCase().trim();
 
         if (text.includes("what is my name") || text.includes("my name")) {
-          const fullName = [acc.accountHolderFirstName, acc.accountHolderLastName].filter(Boolean).join(" ");
+          let fullName = [acc.accountHolderFirstName, acc.accountHolderLastName].filter(Boolean).join(" ");
+          fullName = fullName.replace(/[.!?]+$/, "").trim();
           reply = `Your name on the account is ${fullName}.`;
         } else if (
           text.includes("email address is on my account") ||
@@ -205,7 +206,8 @@ export async function POST(request: Request) {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
           });
-          const fullName = [acc.accountHolderFirstName, acc.accountHolderLastName].filter(Boolean).join(" ");
+          let fullName = [acc.accountHolderFirstName, acc.accountHolderLastName].filter(Boolean).join(" ");
+          fullName = fullName.replace(/[.!?]+$/, "").trim();
           reply = `Your account details are as follows:\n- Full Name: ${fullName}\n- Email: ${acc.email}\n- Phone: ${acc.phone}\n- Address: ${addr}\n- Preferred Contact Method: ${acc.preferredContactMethod.toLowerCase()}\n- Current Balance: €${balanceFormatted}\n- Creditor: ${acc.creditorName}\n- Reference: ${acc.reference}`;
         }
         break;
