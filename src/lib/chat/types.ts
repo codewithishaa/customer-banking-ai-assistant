@@ -75,5 +75,6 @@ export type ExtractedFields = {
   dueDate?: string;
   scheduledAt?: string;
   reason?: string;
+  incompleteRead?: boolean;
 };
 

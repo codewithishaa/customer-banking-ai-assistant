@@ -447,7 +447,7 @@ describe("chat action acceptance contracts", () => {
         const res = await POST(req);
         const body = await res.json();
         expect(body.result.success).toBe(false);
-        expect(body.result.reply).toContain("invalid");
+        expect(body.result.reply).toContain("format");
       }
     });
 
@@ -580,7 +580,7 @@ describe("chat action acceptance contracts", () => {
         const res = await POST(req);
         const body = await res.json();
         expect(body.result.success).toBe(false);
-        expect(body.result.reply).toContain("invalid");
+        expect(body.result.reply).toContain("format");
       }
     });
 
@@ -637,7 +637,7 @@ describe("chat action acceptance contracts", () => {
       const res1 = await POST(req1);
       const body1 = await res1.json();
       expect(body1.result.success).toBe(false);
-      expect(body1.result.reply).toContain("provide their name, email, phone");
+      expect(body1.result.reply).toContain("Please provide the related person's name, email, and phone");
       expect(mockAddRelatedPerson).not.toHaveBeenCalled();
       expect(mockSendNotification).not.toHaveBeenCalled();
 
@@ -1185,6 +1185,181 @@ describe("chat action acceptance contracts", () => {
       expect(res.status).toBe(200);
       expect(body.result.success).toBe(true); // Persisted data-change succeeded
       expect(body.result.reply).toContain("successfully updated");
+    });
+
+    describe("PayPathIQ chatbot workflow fallback and guidance tests", () => {
+      it("unrelated question returns supported-actions fallback and does not notify or mutate DB", async () => {
+        mockSendNotification.mockClear();
+        mockUpdateAccountHolder.mockClear();
+
+        const messages = ["hello", "hi", "what is the weather", "asdfgh", "help", "update my details", "please help me"];
+        for (const msg of messages) {
+          const req = new Request("http://localhost/api/chat", {
+            method: "POST",
+            body: JSON.stringify({
+              accountId: "acc_standard_001",
+              message: msg,
+            }),
+          });
+          const res = await POST(req);
+          const body = await res.json();
+          expect(body.result.success).toBe(false);
+          expect(body.result.reply).toContain("I can help with account self-service only");
+          expect(body.result.reply).toContain("Change my postal address to 12 River Walk");
+          expect(mockSendNotification).not.toHaveBeenCalled();
+          expect(mockUpdateAccountHolder).not.toHaveBeenCalled();
+        }
+      });
+
+      it("incomplete read messages return account read guidance", async () => {
+        const messages = ["details", "account", "show account", "show details"];
+        for (const msg of messages) {
+          const req = new Request("http://localhost/api/chat", {
+            method: "POST",
+            body: JSON.stringify({
+              accountId: "acc_standard_001",
+              message: msg,
+            }),
+          });
+          const res = await POST(req);
+          const body = await res.json();
+          expect(body.result.success).toBe(true);
+          expect(body.result.reply).toContain("I can show specific account details. Please ask one of:");
+        }
+      });
+
+      it("incomplete contact holder updates return correct format guidance", async () => {
+        const testCases = [
+          { msg: "change my name", expected: "Change my name to Jane Murphy" },
+          { msg: "update my name", expected: "Change my name to Jane Murphy" },
+          { msg: "name change", expected: "Change my name to Jane Murphy" },
+          { msg: "change my email", expected: "Change my email to jane@example.com" },
+          { msg: "update my email", expected: "Change my email to jane@example.com" },
+          { msg: "email change", expected: "Change my email to jane@example.com" },
+          { msg: "change my phone", expected: "Change my phone number to +353831234567" },
+          { msg: "update my phone", expected: "Change my phone number to +353831234567" },
+          { msg: "phone change", expected: "Change my phone number to +353831234567" },
+          { msg: "change my address", expected: "Change my postal address to 12 River Walk" },
+          { msg: "update my address", expected: "Change my postal address to 12 River Walk" },
+          { msg: "address change", expected: "Change my postal address to 12 River Walk" },
+          { msg: "change contact method", expected: "Change my preferred contact method to email" },
+          { msg: "contact method", expected: "Change my preferred contact method to email" }
+        ];
+
+        for (const tc of testCases) {
+          const req = new Request("http://localhost/api/chat", {
+            method: "POST",
+            body: JSON.stringify({
+              accountId: "acc_standard_001",
+              message: tc.msg,
+            }),
+          });
+          const res = await POST(req);
+          const body = await res.json();
+          expect(body.result.success).toBe(false);
+          expect(body.result.reply).toContain(tc.expected);
+        }
+      });
+
+      it("related people read variants and incomplete add/update/remove return format guidance", async () => {
+        // Read variants
+        const readVariants = [
+          "Show people linked to my account.",
+          "Show related people.",
+          "show people related to me",
+          "who can speak for me?",
+          "who is linked to my account?",
+          "list related people",
+          "linked people",
+          "related people"
+        ];
+        for (const msg of readVariants) {
+          const req = new Request("http://localhost/api/chat", {
+            method: "POST",
+            body: JSON.stringify({
+              accountId: "acc_standard_001",
+              message: msg,
+            }),
+          });
+          const res = await POST(req);
+          const body = await res.json();
+          expect(body.result.action).toBe("read_related_people");
+        }
+
+        // Incomplete add
+        const addReq = new Request("http://localhost/api/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: "acc_standard_001",
+            message: "add my brother",
+          }),
+        });
+        const addBody = await (await POST(addReq)).json();
+        expect(addBody.result.success).toBe(false);
+        expect(addBody.result.reply).toContain("Add John Murphy, john@example.com, +353831987654 so he can act for me.");
+
+        // Incomplete update
+        const updateReq = new Request("http://localhost/api/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: "acc_standard_001",
+            message: "update related person",
+          }),
+        });
+        const updateBody = await (await POST(updateReq)).json();
+        expect(updateBody.result.success).toBe(false);
+        expect(updateBody.result.reply).toContain("Example: Change Mark's phone number to +353831112233.");
+
+        // Incomplete remove
+        const removeReq = new Request("http://localhost/api/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: "acc_standard_001",
+            message: "remove someone",
+          }),
+        });
+        const removeBody = await (await POST(removeReq)).json();
+        expect(removeBody.result.success).toBe(false);
+        expect(removeBody.result.reply).toContain("Example: Remove Mark Murphy with email mark@example.test from my account.");
+      });
+
+      it("payments, promises, and calls incomplete queries return format guidance", async () => {
+        // Incomplete mocked payment
+        const payReq = new Request("http://localhost/api/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: "acc_standard_001",
+            message: "pay now",
+          }),
+        });
+        const payBody = await (await POST(payReq)).json();
+        expect(payBody.result.success).toBe(false);
+        expect(payBody.result.reply).toContain("Pay 10 euro now.");
+
+        // Incomplete promise
+        const promiseReq = new Request("http://localhost/api/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: "acc_standard_001",
+            message: "promise to pay",
+          }),
+        });
+        const promiseBody = await (await POST(promiseReq)).json();
+        expect(promiseBody.result.success).toBe(false);
+        expect(promiseBody.result.reply).toContain("Can I pay 500 euro on the 1st of next month?");
+
+        // Incomplete call booking
+        const callReq = new Request("http://localhost/api/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: "acc_standard_001",
+            message: "call me",
+          }),
+        });
+        const callBody = await (await POST(callReq)).json();
+        expect(callBody.result.success).toBe(false);
+        expect(callBody.result.reply).toContain("Book a call next Tuesday at 10am about my bill.");
+      });
     });
   });
 });

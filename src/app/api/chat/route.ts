@@ -150,7 +150,9 @@ export async function POST(request: Request) {
         const acc = currentContext.account;
         const text = message.toLowerCase().trim();
 
-        if (text.includes("what is my name") || text.includes("my name")) {
+        if (fields.incompleteRead || text === "details" || text === "account" || text === "show account" || text === "show details") {
+          reply = "I can show specific account details. Please ask one of:\n- What is my name?\n- What is my email?\n- What is my address?\n- What is my balance?\n- Show my transactions.\n- Show people linked to my account.\n- Show my promises to pay.\n- What calls do I have booked?";
+        } else if (text.includes("what is my name") || text.includes("my name")) {
           let fullName = [acc.accountHolderFirstName, acc.accountHolderLastName].filter(Boolean).join(" ");
           fullName = fullName.replace(/[.!?]+$/, "").trim();
           reply = `Your name on the account is ${fullName}.`;
@@ -215,10 +217,49 @@ export async function POST(request: Request) {
 
       case "update_account_holder": {
         const updates: Partial<AccountHolder> = {};
+        const text = message.toLowerCase().trim();
+
+        // 1. Check for name update intent
+        const nameKeywords = ["change my name", "update my name", "name change", "change name", "update name"];
+        const isNameAction = nameKeywords.some(kw => text.includes(kw)) || (fields.name !== undefined && fields.name.trim() === "");
+        if (isNameAction && (fields.name === undefined || !isValidName(fields.name.trim()))) {
+          success = false;
+          reply = "Please provide the full name in this format: Change my name to Jane Murphy.";
+          break;
+        }
+
+        // 2. Check for email update intent
+        const emailKeywords = ["change my email", "update my email", "email change", "change email", "update email"];
+        const isEmailAction = emailKeywords.some(kw => text.includes(kw)) || (fields.email !== undefined && fields.email.trim() === "");
+        if (isEmailAction && (fields.email === undefined || !isValidEmail(fields.email.trim()))) {
+          success = false;
+          reply = "Please provide the new email address in this format: Change my email to jane@example.com.";
+          break;
+        }
+
+        // 3. Check for phone update intent
+        const phoneKeywords = ["change my phone", "update my phone", "phone change", "change phone", "update phone", "change phone number to"];
+        const isPhoneAction = phoneKeywords.some(kw => text.includes(kw)) || (fields.phone !== undefined && fields.phone.trim() === "");
+        if (isPhoneAction && (fields.phone === undefined || fields.phone.replace(/\D/g, "").length < 5)) {
+          success = false;
+          reply = "Please provide the new phone number in this format: Change my phone number to +353831234567.";
+          break;
+        }
+
+        // 4. Check for address update intent
+        const addressKeywords = ["change my address", "update my address", "my address", "address change", "change my postal address", "update my postal address"];
+        const isAddressAction = addressKeywords.some(kw => text.includes(kw)) || (fields.address !== undefined && fields.address.trim() === "");
+        if (isAddressAction && (fields.address === undefined || !isValidAddress(fields.address.trim()))) {
+          success = false;
+          reply = "Please provide the full postal address in this format: Change my postal address to 12 River Walk, Rathmines, Dublin, D06 X123, Ireland.";
+          break;
+        }
+
+        // Apply edits if fields are valid
         if (fields.email !== undefined) {
           if (!isValidEmail(fields.email)) {
             success = false;
-            reply = "The email address format you provided is invalid. Please provide a valid email.";
+            reply = "Please provide the new email address in this format: Change my email to jane@example.com.";
             break;
           }
           updates.email = fields.email;
@@ -226,7 +267,7 @@ export async function POST(request: Request) {
         if (fields.phone !== undefined) {
           if (fields.phone.replace(/\D/g, "").length < 5) {
             success = false;
-            reply = "The phone number you provided is invalid. Please provide a valid phone number.";
+            reply = "Please provide the new phone number in this format: Change my phone number to +353831234567.";
             break;
           }
           updates.phone = fields.phone;
@@ -236,7 +277,7 @@ export async function POST(request: Request) {
           nameStr = nameStr.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]+$/, "").trim();
           if (!isValidName(nameStr)) {
             success = false;
-            reply = "The name you provided is invalid. Please provide a valid name.";
+            reply = "Please provide the full name in this format: Change my name to Jane Murphy.";
             break;
           }
           const nameParts = nameStr.split(/\s+/);
@@ -248,7 +289,7 @@ export async function POST(request: Request) {
           addrStr = addrStr.replace(/[.!?]+$/, "").trim();
           if (!isValidAddress(addrStr)) {
             success = false;
-            reply = "The address you provided is invalid. Please provide a valid address.";
+            reply = "Please provide the full postal address in this format: Change my postal address to 12 River Walk, Rathmines, Dublin, D06 X123, Ireland.";
             break;
           }
           const parts = addrStr.split(",").map(p => p.trim());
@@ -320,7 +361,7 @@ export async function POST(request: Request) {
           notificationQueued = true;
         } else {
           success = false;
-          reply = "Please specify a valid preferred contact method. Supported methods are: email, sms, or phone.";
+          reply = "Please provide the preferred contact method in this format: Change my preferred contact method to email. Supported methods are email, sms, and phone.";
         }
         break;
       }
@@ -336,7 +377,7 @@ export async function POST(request: Request) {
         if (missing.length > 0) {
           success = false;
           missingFields = missing;
-          reply = `To add a related person, please provide their ${missing.join(", ")}.`;
+          reply = "Please provide the related person's name, email, and phone in this format: Add John Murphy, john@example.com, +353831987654 so he can act for me.";
           conversationState.set(conversationId, {
             action: "add_related_person",
             pendingData: {
@@ -372,9 +413,9 @@ export async function POST(request: Request) {
 
       case "update_related_person": {
         const { name, email, phone, relationship, authorizedToAct } = fields;
-        if (!name) {
+        if (!name || (email === undefined && phone === undefined)) {
           success = false;
-          reply = "Please specify the name of the related person you wish to update.";
+          reply = "Please provide the related person's name and detail to update. Example: Change Mark's phone number to +353831112233.";
           break;
         }
 
@@ -408,7 +449,7 @@ export async function POST(request: Request) {
         const { name, email } = fields;
         if (!name) {
           success = false;
-          reply = "Please specify the name of the related person you want to remove.";
+          reply = "Please provide the related person's name and, if possible, email. Example: Remove Mark Murphy with email mark@example.test from my account.";
           break;
         }
 
@@ -438,9 +479,9 @@ export async function POST(request: Request) {
 
       case "create_promise_to_pay": {
         const { amountCents, dueDate } = fields;
-        if (!amountCents || !dueDate) {
+        if (!amountCents || amountCents <= 0 || !dueDate) {
           success = false;
-          reply = "Please provide both the amount and a future date for your promise to pay.";
+          reply = "Please provide the amount and date in this format: Can I pay 500 euro on the 1st of next month?";
           break;
         }
 
@@ -478,7 +519,7 @@ export async function POST(request: Request) {
         const { amountCents } = fields;
         if (!amountCents || amountCents <= 0) {
           success = false;
-          reply = "Please specify a valid payment amount.";
+          reply = "Please provide the amount in this format: Pay 10 euro now.";
           break;
         }
 
@@ -512,7 +553,7 @@ export async function POST(request: Request) {
         const { scheduledAt, phone, reason } = fields;
         if (!scheduledAt) {
           success = false;
-          reply = "Please specify a date and time for booking the call.";
+          reply = "Please provide a future date and time in this format: Book a call next Tuesday at 10am about my bill.";
           break;
         }
 
@@ -543,7 +584,6 @@ export async function POST(request: Request) {
           return new Date(c.scheduledAt).getTime() >= now.getTime();
         });
 
-        // De-duplicate by scheduledAt
         const uniqueAppointments: typeof list = [];
         const seenTimes = new Set<string>();
         const sorted = [...futureAppointments].sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
@@ -584,15 +624,11 @@ export async function POST(request: Request) {
         break;
       }
 
-      case "clarify": {
-        success = false;
-        reply = "I'm not completely sure about your request. Could you please provide more details or clarify?";
-        break;
-      }
-
+      case "unsupported":
+      case "clarify":
       default: {
         success = false;
-        reply = "I'm sorry, I cannot perform that action. How else can I help you today?";
+        reply = "I can help with account self-service only. You can ask me to view or update account details, manage related people, make a mocked payment, create a promise to pay, view transactions, or book a future call.\n\nFor example:\n- What is my balance?\n- Change my postal address to 12 River Walk, Rathmines, Dublin, D06 X123, Ireland.\n- Add John Murphy, john@example.com, +353831987654 so he can act for me.\n- Pay 10 euro now.\n- Book a call next Tuesday at 10am about my bill.";
         break;
       }
     }

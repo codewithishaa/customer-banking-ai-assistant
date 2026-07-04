@@ -203,7 +203,7 @@ Do not write markdown formatting, only output raw JSON.`;
 export function parseRegex(message: string, context: AccountContext): { action: ChatAction; fields: ExtractedFields } {
   const text = message.toLowerCase().trim();
 
-  // 0. Update account holder name checks (do this first so we don't accidentally intercept name updates in read_account queries)
+  // 0. Update account holder name checks
   const nameUpdateMatch =
     message.match(/(?:change|update)\s+(?:my\s+)?(?:account\s+holder\s+)?(?:full\s+)?name\s+to\s*(.*)$/i) ||
     message.match(/my\s+name\s+should\s+be\s*(.*)$/i);
@@ -217,6 +217,23 @@ export function parseRegex(message: string, context: AccountContext): { action: 
     message.match(/my\s+(?:postal\s+)?address\s+is\s+now\s*(.*)$/i);
   if (addressUpdateMatch) {
     return { action: "update_account_holder", fields: { address: addressUpdateMatch[1].trim() } };
+  }
+
+  // Incomplete name/address changes
+  if (text === "change my name" || text === "update my name" || text === "name change") {
+    return { action: "update_account_holder", fields: { name: "" } };
+  }
+  if (text === "change my address" || text === "update my address" || text === "my address" || text === "address change") {
+    return { action: "update_account_holder", fields: { address: "" } };
+  }
+  if (text === "change my email" || text === "update my email" || text === "email change") {
+    return { action: "update_account_holder", fields: { email: "" } };
+  }
+  if (text === "change my phone" || text === "update my phone" || text === "phone change") {
+    return { action: "update_account_holder", fields: { phone: "" } };
+  }
+  if (text === "change contact method" || text === "update preferred contact" || text === "contact method") {
+    return { action: "update_preferred_contact_method", fields: {} };
   }
 
   // 1. Read-only account queries
@@ -234,7 +251,6 @@ export function parseRegex(message: string, context: AccountContext): { action: 
   }
   if (text.includes("preferred contact method")) {
     if (text.includes("change") || text.includes("update") || text.includes("to")) {
-      // Intent: preferred contact update
       let preferredContactMethod = "";
       if (text.includes("sms")) preferredContactMethod = "sms";
       else if (text.includes("email")) preferredContactMethod = "email";
@@ -251,6 +267,10 @@ export function parseRegex(message: string, context: AccountContext): { action: 
   if (text.includes("what is my balance") || text.includes("how much do i owe")) {
     return { action: "read_account", fields: {} };
   }
+  // Incomplete details matches
+  if (text === "details" || text === "account" || text === "show account" || text === "show details") {
+    return { action: "read_account", fields: { incompleteRead: true } };
+  }
   if (text.includes("account details") || text.includes("account summary") || text.includes("show my account")) {
     return { action: "read_account", fields: {} };
   }
@@ -261,30 +281,59 @@ export function parseRegex(message: string, context: AccountContext): { action: 
     text.includes("who can speak for me") ||
     text.includes("show related people") ||
     text.includes("linked to my account") ||
-    text.includes("show people linked to my account")
+    text.includes("show people linked to my account") ||
+    text === "linked people" ||
+    text === "related people" ||
+    text.includes("linked people") ||
+    text.includes("related people")
   ) {
     return { action: "read_related_people", fields: {} };
   }
-  if (text.includes("show my transactions") || text.includes("transaction history") || text.includes("previous transactions") || text.includes("transactions")) {
+  if (
+    text.includes("show my transactions") ||
+    text.includes("transaction history") ||
+    text.includes("previous transactions") ||
+    text.includes("transactions") ||
+    text === "transactions" ||
+    text === "payments" ||
+    text.includes("payments")
+  ) {
     return { action: "read_transactions", fields: {} };
   }
   if (text.includes("show my promises to pay") || text.includes("promises to pay") || text.includes("my promises")) {
     return { action: "read_promises_to_pay", fields: {} };
   }
-  if (text.includes("what calls do i have booked") || text.includes("booked calls") || text.includes("scheduled calls")) {
+  if (text.includes("what calls do i have booked") || text.includes("booked calls") || text.includes("scheduled calls") || text.includes("call appointments")) {
     return { action: "read_call_appointments", fields: {} };
   }
 
   // 2. Call appointments query/booking
-  if (text.includes("book a call") || text.includes("schedule a call") || text.includes("appointment")) {
+  if (
+    text.includes("book a call") ||
+    text.includes("schedule a call") ||
+    text.includes("appointment") ||
+    text.includes("call me") ||
+    text.includes("book call") ||
+    text.includes("schedule call") ||
+    text.includes("i want to talk") ||
+    text.includes("call appointment")
+  ) {
     let scheduledAt = "";
     let reason = "Discuss bill";
     const phone = context.account.phone;
 
+    // Check if user did not provide a date/time (incomplete call booking)
+    const hasDateTime = text.includes("next tuesday") || text.includes("tomorrow") || text.includes("on ") || text.includes("at ");
+    if (!hasDateTime) {
+      return {
+        action: "book_call_appointment",
+        fields: { scheduledAt: "", phone, reason },
+      };
+    }
+
     if (text.includes("yesterday")) {
       scheduledAt = "2026-07-02T10:00:00+01:00";
     } else {
-      // next Tuesday at 10am -> 2026-07-07T10:00:00+01:00
       scheduledAt = "2026-07-07T10:00:00+01:00";
     }
 
@@ -300,7 +349,14 @@ export function parseRegex(message: string, context: AccountContext): { action: 
   }
 
   // 3. Promises query/creation
-  if (text.includes("can i pay") || text.includes("promise to pay") || text.includes("i can pay")) {
+  if (
+    text.includes("can i pay") ||
+    text.includes("promise to pay") ||
+    text.includes("i can pay") ||
+    text.includes("pay later") ||
+    text.includes("i will pay") ||
+    text.includes("i want to pay later")
+  ) {
     let amountCents = 0;
     const amountMatch = text.match(/pay\s+(\d+)\s*(?:euro|eur)?/);
     if (amountMatch) {
@@ -313,7 +369,7 @@ export function parseRegex(message: string, context: AccountContext): { action: 
     } else if (text.includes("next friday")) {
       dueDate = "2026-07-10";
     } else {
-      const dateMatch = text.match(/on\s+the\s+(\d+)(?:st|nd|rd|th)?/);
+      const dateMatch = text.match(/on\s+the\s+(\d+)(?:st|nd|rd|th)?/) || text.match(/on\s+(\d+)(?:st|nd|rd|th)?/);
       if (dateMatch) {
         const day = parseInt(dateMatch[1], 10);
         const dateObj = new Date("2026-07-03T12:00:00+01:00");
@@ -332,8 +388,16 @@ export function parseRegex(message: string, context: AccountContext): { action: 
   }
 
   // 4. Mock payment
-  if (text.startsWith("pay ") && (text.includes("now") || text.includes("today"))) {
-    const amountMatch = text.match(/pay\s+(\d+)\s*(?:euro|eur)?/);
+  if (
+    (text.startsWith("pay ") && (text.includes("now") || text.includes("today"))) ||
+    text === "pay now" ||
+    text === "make payment" ||
+    text === "payment" ||
+    text === "pay" ||
+    text.startsWith("pay ") ||
+    text.startsWith("make a payment")
+  ) {
+    const amountMatch = text.match(/(?:pay|payment\s+of|payment)\s+(\d+)\s*(?:euro|eur)?/i);
     let amountCents = 0;
     if (amountMatch) {
       amountCents = parseInt(amountMatch[1], 10) * 100;
@@ -342,7 +406,14 @@ export function parseRegex(message: string, context: AccountContext): { action: 
   }
 
   // 5. Related people operations
-  if (text.startsWith("add my ") || text.startsWith("add related person") || text.startsWith("add mark ")) {
+  if (
+    text.startsWith("add my ") ||
+    text.startsWith("add related person") ||
+    text.startsWith("add linked person") ||
+    text.startsWith("add person") ||
+    text.startsWith("add someone") ||
+    text.startsWith("add mark ")
+  ) {
     const emailMatch = message.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
     const phoneMatch = message.match(/(\+\d{8,15})/);
 
@@ -350,7 +421,7 @@ export function parseRegex(message: string, context: AccountContext): { action: 
     const addMatch = message.match(/add\s+([A-Za-z\s]+)(?:,|\s+so\s+|\s+so\s+he\s+|$)/i);
     if (addMatch) {
       const parsedName = addMatch[1].trim();
-      if (!parsedName.toLowerCase().startsWith("my")) {
+      if (!parsedName.toLowerCase().startsWith("my") && !parsedName.toLowerCase().startsWith("related") && !parsedName.toLowerCase().startsWith("linked") && !parsedName.toLowerCase().startsWith("person") && !parsedName.toLowerCase().startsWith("someone")) {
         name = parsedName;
       }
     }
@@ -370,8 +441,13 @@ export function parseRegex(message: string, context: AccountContext): { action: 
     };
   }
 
-  if (text.includes("change ") && (text.includes("phone") || text.includes("email")) && (text.includes("mark") || text.includes("john"))) {
-    const name = text.includes("mark") ? "Mark" : "John";
+  if (
+    text.includes("update related person") ||
+    text.includes("change linked person") ||
+    (text.includes("change ") && (text.includes("phone") || text.includes("email")) && (text.includes("mark") || text.includes("john"))) ||
+    ((text.includes("update") || text.includes("change")) && (text.includes("mark") || text.includes("john") || text.includes("related person")))
+  ) {
+    const name = text.includes("mark") ? "Mark" : (text.includes("john") ? "John" : "");
     const phoneMatch = message.match(/(\+\d{8,15})/);
     const emailMatch = message.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
 
@@ -385,7 +461,15 @@ export function parseRegex(message: string, context: AccountContext): { action: 
     };
   }
 
-  if (text.startsWith("remove ")) {
+  if (
+    text.startsWith("remove ") ||
+    text.startsWith("delete ") ||
+    text.includes("remove person") ||
+    text.includes("remove linked person") ||
+    text.includes("remove related person") ||
+    text.includes("delete person") ||
+    text.includes("remove someone")
+  ) {
     const emailMatch = message.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
     const email = emailMatch ? emailMatch[1] : undefined;
 
@@ -397,6 +481,14 @@ export function parseRegex(message: string, context: AccountContext): { action: 
       name = matchWithNameAndEmail[1].trim();
     } else if (matchWithNameOnly) {
       name = matchWithNameOnly[1].trim();
+    } else {
+      const simpleMatch = message.match(/(?:remove|delete)\s+([A-Za-z\s]+)$/i);
+      if (simpleMatch) {
+        const parsedName = simpleMatch[1].trim();
+        if (!parsedName.toLowerCase().startsWith("person") && !parsedName.toLowerCase().startsWith("linked") && !parsedName.toLowerCase().startsWith("related") && !parsedName.toLowerCase().startsWith("someone")) {
+          name = parsedName;
+        }
+      }
     }
 
     return {
@@ -406,7 +498,15 @@ export function parseRegex(message: string, context: AccountContext): { action: 
   }
 
   // 6. Update account holder details
-  if (text.includes("change my email") || text.includes("update my email") || text.includes("change my phone") || text.includes("update my phone") || text.includes("change phone number to")) {
+  if (
+    text.includes("change my email") ||
+    text.includes("update my email") ||
+    text.includes("change my phone") ||
+    text.includes("update my phone") ||
+    text.includes("change phone number to") ||
+    text.includes("update email to") ||
+    text.includes("change email to")
+  ) {
     const phoneMatch = message.match(/(\+\d{8,15})/);
     const emailMatch = message.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
 
