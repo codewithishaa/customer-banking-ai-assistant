@@ -42,7 +42,14 @@ export async function generateEncryptedAccountPdf(
       doc.text(`Email: ${context.account.email}`);
       doc.text(`Phone: ${context.account.phone}`);
       doc.text(`Preferred Contact Method: ${context.account.preferredContactMethod.toUpperCase()}`);
-      doc.text(`Address: ${context.account.address.line1}, ${context.account.address.line2 || ""}, ${context.account.address.city}, ${context.account.address.postalCode}, ${context.account.address.country}`);
+      const addrParts = [
+        context.account.address.line1,
+        context.account.address.line2,
+        context.account.address.city,
+        context.account.address.postalCode,
+        context.account.address.country,
+      ].filter(Boolean);
+      doc.text(`Address: ${addrParts.join(", ")}`);
       doc.moveDown();
 
       doc.fontSize(14).text("Related People", { underline: true });

@@ -58,6 +58,8 @@ describe("chat action acceptance contracts", () => {
   let mockContext: any;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-04T12:00:00+01:00"));
     vi.clearAllMocks();
 
     mockContext = {
@@ -140,6 +142,10 @@ describe("chat action acceptance contracts", () => {
       merged.callAppointments = [...merged.callAppointments, { id: "call_123", ...call }];
       return Promise.resolve(merged);
     });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("updates the account holder phone number and queues a redacted notification", async () => {
@@ -478,6 +484,237 @@ describe("chat action acceptance contracts", () => {
 
       await POST(req);
       expect(mockSendNotification).not.toHaveBeenCalled();
+    });
+
+    it("postal address update success and read-back", async () => {
+      // 1. Update address
+      const reqUpdate = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "Change my postal address to 12 Test Street, Dublin 2, Ireland.",
+        }),
+      });
+      const resUpdate = await POST(reqUpdate);
+      const bodyUpdate = await resUpdate.json();
+
+      expect(resUpdate.status).toBe(200);
+      expect(bodyUpdate.result.success).toBe(true);
+      expect(bodyUpdate.result.reply).toContain("12 Test Street, Dublin 2, Ireland");
+      expect(mockUpdateAccountHolder).toHaveBeenCalledWith("acc_standard_001", {
+        address: {
+          line1: "12 Test Street",
+          line2: undefined,
+          city: "Dublin 2",
+          postalCode: "",
+          country: "Ireland",
+        },
+      });
+
+      // 2. Read back address
+      const reqRead = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "What is my postal address?",
+        }),
+      });
+      const resRead = await POST(reqRead);
+      const bodyRead = await resRead.json();
+      expect(bodyRead.result.reply).toBe("Your postal address is 12 Test Street, Dublin 2, Ireland.");
+    });
+
+    it("invalid/empty postal address rejection", async () => {
+      const invalidAddresses = [
+        "Change my postal address to ",
+        "Change my address to short",
+        "Update my address to NoCommas",
+      ];
+
+      for (const addrMsg of invalidAddresses) {
+        const req = new Request("http://localhost/api/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: "acc_standard_001",
+            message: addrMsg,
+          }),
+        });
+        const res = await POST(req);
+        const body = await res.json();
+        expect(body.result.success).toBe(false);
+        expect(body.result.reply).toContain("invalid");
+      }
+    });
+
+    it("address update triggers notification", async () => {
+      mockSendNotification.mockClear();
+      const req = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "Change my address to 12 Test Street, Dublin 2, Ireland",
+        }),
+      });
+      await POST(req);
+      expect(mockSendNotification).toHaveBeenCalled();
+    });
+
+    it("related-person missing-details follow-up completes successfully", async () => {
+      mockSendNotification.mockClear();
+      mockAddRelatedPerson.mockClear();
+
+      // 1. Initial request with missing details
+      const req1 = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          conversationId: "conv-follow-up-test",
+          message: "Add my brother so he can speak for me",
+        }),
+      });
+      const res1 = await POST(req1);
+      const body1 = await res1.json();
+      expect(body1.result.success).toBe(false);
+      expect(body1.result.reply).toContain("provide their name, email, phone");
+      expect(mockAddRelatedPerson).not.toHaveBeenCalled();
+      expect(mockSendNotification).not.toHaveBeenCalled();
+
+      // 2. Follow-up completing the missing details
+      const req2 = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          conversationId: "conv-follow-up-test",
+          message: "David, david@gmail.com, +353786786789",
+        }),
+      });
+      const res2 = await POST(req2);
+      const body2 = await res2.json();
+      expect(body2.result.success).toBe(true);
+      expect(body2.result.reply).toContain("successfully added David");
+      expect(mockAddRelatedPerson).toHaveBeenCalledWith("acc_standard_001", {
+        name: "David",
+        email: "david@gmail.com",
+        phone: "+353786786789",
+        relationship: "brother",
+        authorizedToAct: true,
+      });
+      expect(mockSendNotification).toHaveBeenCalled();
+    });
+
+    it("related-person confirmation fallback workflow", async () => {
+      mockSendNotification.mockClear();
+      mockAddRelatedPerson.mockClear();
+
+      // 1. Send details out of nowhere
+      const req1 = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          conversationId: "conv-fallback-test",
+          message: "David, david@gmail.com, +353786786789",
+        }),
+      });
+      const res1 = await POST(req1);
+      const body1 = await res1.json();
+      expect(body1.result.success).toBe(false);
+      expect(body1.result.reply).toContain("Do you want me to add this person");
+      expect(mockAddRelatedPerson).not.toHaveBeenCalled();
+
+      // 2. Confirm adding them
+      const req2 = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          conversationId: "conv-fallback-test",
+          message: "Yes please",
+        }),
+      });
+      const res2 = await POST(req2);
+      const body2 = await res2.json();
+      expect(body2.result.success).toBe(true);
+      expect(body2.result.reply).toContain("successfully added David");
+      expect(mockAddRelatedPerson).toHaveBeenCalledWith("acc_standard_001", {
+        name: "David",
+        email: "david@gmail.com",
+        phone: "+353786786789",
+        relationship: "Representative",
+        authorizedToAct: false,
+      });
+      expect(mockSendNotification).toHaveBeenCalled();
+    });
+
+    it("related people read wording variants", async () => {
+      const wordings = [
+        "show people related to me",
+        "show the people linked to me",
+        "who is linked to my account?",
+        "who can speak for me?",
+        "show related people",
+      ];
+
+      for (const msg of wordings) {
+        const req = new Request("http://localhost/api/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: "acc_standard_001",
+            message: msg,
+          }),
+        });
+        const res = await POST(req);
+        const body = await res.json();
+        expect(body.result.action).toBe("read_related_people");
+      }
+    });
+
+    it("name update trims trailing punctuation", async () => {
+      const req = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "Change my name to David Murphy.",
+        }),
+      });
+      const res = await POST(req);
+      const body = await res.json();
+      expect(body.result.reply).toBe("I have updated the account holder name to David Murphy.");
+      expect(mockUpdateAccountHolder).toHaveBeenCalledWith("acc_standard_001", {
+        accountHolderFirstName: "David",
+        accountHolderLastName: "Murphy",
+      });
+    });
+
+    it("future calls list excludes past calls", async () => {
+      // Current system time is set to 2026-07-04T12:00:00+01:00
+      mockContext.callAppointments = [
+        { id: "c1", scheduledAt: "2026-07-02T10:00:00+01:00", phone: "+353831234567", reason: "Past call", status: "scheduled" },
+        { id: "c2", scheduledAt: "2026-07-07T10:00:00+01:00", phone: "+353831234567", reason: "Future call", status: "scheduled" },
+      ];
+
+      const req = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "What calls do I have booked?",
+        }),
+      });
+      const res = await POST(req);
+      const body = await res.json();
+      expect(body.result.reply).toContain("Future call");
+      expect(body.result.reply).not.toContain("Past call");
+    });
+
+    it("next Tuesday at 10am displays as 10:00", async () => {
+      const req = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "Book a call next Tuesday at 10am about my bill",
+        }),
+      });
+      const res = await POST(req);
+      const body = await res.json();
+      expect(body.result.reply).toContain("10:00");
     });
 
     it("postal address lookup", async () => {

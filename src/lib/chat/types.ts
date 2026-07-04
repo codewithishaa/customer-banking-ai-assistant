@@ -31,7 +31,9 @@ export type ChatAction =
   | "book_call_appointment"
   | "read_call_appointments"
   | "clarify"
-  | "unsupported";
+  | "unsupported"
+  | "ask_confirm_add"
+  | "cancel_pending_add";
 
 export type ChatActionResult = {
   action: ChatAction;

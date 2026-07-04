@@ -14,11 +14,15 @@ import { sendAccountChangeNotification } from "@/lib/notifications/account-chang
 import type { ChatRequest, ChatResponse } from "@/lib/chat/types";
 import type { AccountHolder, RelatedPerson } from "@/lib/account/types";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const conversationState = new Map<string, { action: string; pendingData: any }>();
+
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as Partial<ChatRequest>;
     const accountId = body.accountId?.trim();
     const message = body.message?.trim();
+    const conversationId = body.conversationId ?? "starter-conversation";
 
     if (!accountId || !message) {
       return NextResponse.json(
@@ -37,7 +41,74 @@ export async function POST(request: Request) {
     }
 
     // 2. Parse intent and extract fields
-    const { action, fields } = await parseMessage(message, currentContext);
+    const { action: parsedAction, fields: parsedFields } = await parseMessage(message, currentContext);
+
+    let action = parsedAction;
+    let fields = parsedFields;
+
+    // Stateful follow-up handling
+    const pendingState = conversationState.get(conversationId);
+    if (pendingState) {
+      if (action !== "unsupported" && action !== "clarify") {
+        // Discard pending state on explicit new action
+        conversationState.delete(conversationId);
+      } else if (pendingState.action === "add_related_person") {
+        const emailMatch = message.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+        const phoneMatch = message.match(/(\+\d{8,15})/);
+        const extractedEmail = emailMatch ? emailMatch[1] : undefined;
+        const extractedPhone = phoneMatch ? phoneMatch[1] : undefined;
+        let namePart = message;
+        if (extractedEmail) namePart = namePart.replace(extractedEmail, "");
+        if (extractedPhone) namePart = namePart.replace(extractedPhone, "");
+        namePart = namePart.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]+/g, " ").trim();
+        namePart = namePart.replace(/\s+/g, " ");
+        const extractedName = namePart || undefined;
+
+        fields = {
+          relationship: pendingState.pendingData.relationship,
+          authorizedToAct: pendingState.pendingData.authorizedToAct,
+          name: extractedName || pendingState.pendingData.name,
+          email: extractedEmail || pendingState.pendingData.email,
+          phone: extractedPhone || pendingState.pendingData.phone,
+        };
+        action = "add_related_person";
+      } else if (pendingState.action === "confirm_add_related_person") {
+        const isYes = message.toLowerCase().match(/\b(yes|yep|sure|ok|okay|add|confirm|do it)\b/);
+        if (isYes) {
+          fields = {
+            relationship: "Representative",
+            authorizedToAct: false,
+            name: pendingState.pendingData.name,
+            email: pendingState.pendingData.email,
+            phone: pendingState.pendingData.phone,
+          };
+          action = "add_related_person";
+        } else {
+          action = "cancel_pending_add";
+        }
+        conversationState.delete(conversationId);
+      }
+    } else if (action === "unsupported" || action === "clarify") {
+      // Check if message has name, email, and phone for confirmation fallback
+      const emailMatch = message.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
+      const phoneMatch = message.match(/(\+\d{8,15})/);
+      if (emailMatch && phoneMatch) {
+        const extractedEmail = emailMatch[1];
+        const extractedPhone = phoneMatch[1];
+        let namePart = message.replace(extractedEmail, "").replace(extractedPhone, "");
+        namePart = namePart.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]+/g, " ").trim();
+        namePart = namePart.replace(/\s+/g, " ");
+        const extractedName = namePart;
+        if (extractedName && extractedName.length >= 2) {
+          action = "ask_confirm_add";
+          fields = {
+            name: extractedName,
+            email: extractedEmail,
+            phone: extractedPhone,
+          };
+        }
+      }
+    }
 
     let success = true;
     let reply = "";
@@ -55,6 +126,14 @@ export async function POST(request: Request) {
       if (trimmed.length < 2) return false;
       if (/\d/.test(trimmed)) return false;
       if (!/[a-zA-Z]/.test(trimmed)) return false;
+      return true;
+    };
+
+    const isValidAddress = (addrStr: string) => {
+      const trimmed = addrStr.trim();
+      if (trimmed.length < 5) return false;
+      const parts = trimmed.split(",").map(p => p.trim()).filter(Boolean);
+      if (parts.length < 2) return false;
       return true;
     };
 
@@ -151,7 +230,8 @@ export async function POST(request: Request) {
           updates.phone = fields.phone;
         }
         if (fields.name !== undefined) {
-          const nameStr = fields.name.trim();
+          let nameStr = fields.name.trim();
+          nameStr = nameStr.replace(/[.,\/#!$%\^&\*;:{}=\-_`~()?]+$/, "").trim();
           if (!isValidName(nameStr)) {
             success = false;
             reply = "The name you provided is invalid. Please provide a valid name.";
@@ -162,18 +242,41 @@ export async function POST(request: Request) {
           updates.accountHolderLastName = nameParts.slice(1).join(" ");
         }
         if (fields.address !== undefined) {
-          const addrStr = fields.address.trim();
-          if (!addrStr) {
+          let addrStr = fields.address.trim();
+          addrStr = addrStr.replace(/[.!?]+$/, "").trim();
+          if (!isValidAddress(addrStr)) {
             success = false;
-            reply = "The address you provided is invalid.";
+            reply = "The address you provided is invalid. Please provide a valid address.";
             break;
           }
-          const parts = addrStr.split(",");
+          const parts = addrStr.split(",").map(p => p.trim());
+          const line1 = parts[0] || "";
+          const line2 = parts.length > 4 ? parts[1] : "";
+          let city = "";
+          let postalCode = "";
+          let country = "";
+
+          if (parts.length === 2) {
+            city = parts[1];
+          } else if (parts.length === 3) {
+            city = parts[1];
+            country = parts[2];
+          } else if (parts.length === 4) {
+            city = parts[1];
+            postalCode = parts[2];
+            country = parts[3];
+          } else if (parts.length >= 5) {
+            city = parts[2];
+            postalCode = parts[3];
+            country = parts[4];
+          }
+
           updates.address = {
-            line1: parts[0]?.trim() || "",
-            city: parts[1]?.trim() || currentContext.account.address.city,
-            postalCode: currentContext.account.address.postalCode,
-            country: currentContext.account.address.country,
+            line1,
+            line2: line2 || undefined,
+            city,
+            postalCode,
+            country,
           };
         }
 
@@ -185,6 +288,15 @@ export async function POST(request: Request) {
           if (updates.accountHolderFirstName !== undefined) {
             const fullName = [updates.accountHolderFirstName, updates.accountHolderLastName].filter(Boolean).join(" ");
             reply = `I have updated the account holder name to ${fullName}.`;
+          } else if (updates.address !== undefined) {
+            const addrParts = [
+              updates.address.line1,
+              updates.address.line2,
+              updates.address.city,
+              updates.address.postalCode,
+              updates.address.country,
+            ].filter(Boolean);
+            reply = `I have updated your postal address to ${addrParts.join(", ")}.`;
           } else {
             reply = "I have successfully updated your account contact details.";
           }
@@ -223,6 +335,16 @@ export async function POST(request: Request) {
           success = false;
           missingFields = missing;
           reply = `To add a related person, please provide their ${missing.join(", ")}.`;
+          conversationState.set(conversationId, {
+            action: "add_related_person",
+            pendingData: {
+              relationship,
+              authorizedToAct,
+              name: name || undefined,
+              email: email || undefined,
+              phone: phone || undefined,
+            }
+          });
           break;
         }
 
@@ -242,6 +364,7 @@ export async function POST(request: Request) {
 
         reply = `I have successfully added ${name} as a related person on your account (Authorized: ${authorizedToAct ? "Yes" : "No"}).`;
         notificationQueued = true;
+        conversationState.delete(conversationId);
         break;
       }
 
@@ -339,11 +462,12 @@ export async function POST(request: Request) {
 
       case "read_promises_to_pay": {
         const list = currentContext.promisesToPay;
-        if (list.length === 0) {
+        const sorted = [...list].sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+        if (sorted.length === 0) {
           reply = "You have no promises to pay scheduled.";
         } else {
           reply = "Here are your scheduled promises to pay:\n" +
-            list.map((p) => `- €${(p.amountCents / 100).toFixed(2)} due on ${p.dueDate} (Status: ${p.status.toUpperCase()})`).join("\n");
+            sorted.map((p) => `- €${(p.amountCents / 100).toFixed(2)} due on ${p.dueDate} (Status: ${p.status.toUpperCase()})`).join("\n");
         }
         break;
       }
@@ -372,11 +496,12 @@ export async function POST(request: Request) {
 
       case "read_transactions": {
         const list = currentContext.transactions;
-        if (list.length === 0) {
+        const sorted = [...list].sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime());
+        if (sorted.length === 0) {
           reply = "You have no previous transactions.";
         } else {
           reply = "Here is your transaction history:\n" +
-            list.map((t) => `- ${t.transactionDate}: ${t.description} of €${(t.amountCents / 100).toFixed(2)} (${t.type.toUpperCase()} - ${t.status.toUpperCase()})`).join("\n");
+            sorted.map((t) => `- ${t.transactionDate}: ${t.description} of €${(t.amountCents / 100).toFixed(2)} (${t.type.toUpperCase()} - ${t.status.toUpperCase()})`).join("\n");
         }
         break;
       }
@@ -403,7 +528,7 @@ export async function POST(request: Request) {
           status: "scheduled",
         });
 
-        const formattedTime = new Date(scheduledAt).toLocaleString("en-IE");
+        const formattedTime = new Date(scheduledAt).toLocaleString("en-IE", { timeZone: "Europe/Dublin" });
         reply = `I have scheduled your call appointment for ${formattedTime} on ${callPhone}.`;
         notificationQueued = true;
         break;
@@ -411,12 +536,49 @@ export async function POST(request: Request) {
 
       case "read_call_appointments": {
         const list = currentContext.callAppointments;
-        if (list.length === 0) {
+        const now = new Date();
+        const futureAppointments = list.filter((c) => {
+          return new Date(c.scheduledAt).getTime() >= now.getTime();
+        });
+
+        // De-duplicate by scheduledAt
+        const uniqueAppointments: typeof list = [];
+        const seenTimes = new Set<string>();
+        const sorted = [...futureAppointments].sort((a, b) => new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+
+        for (const appt of sorted) {
+          if (!seenTimes.has(appt.scheduledAt)) {
+            seenTimes.add(appt.scheduledAt);
+            uniqueAppointments.push(appt);
+          }
+        }
+
+        if (uniqueAppointments.length === 0) {
           reply = "You have no call appointments booked.";
         } else {
           reply = "Here are your booked call appointments:\n" +
-            list.map((c) => `- Call scheduled at ${new Date(c.scheduledAt).toLocaleString("en-IE")} on number ${c.phone} (Reason: ${c.reason || "None"})`).join("\n");
+            uniqueAppointments.map((c) => `- Call scheduled at ${new Date(c.scheduledAt).toLocaleString("en-IE", { timeZone: "Europe/Dublin" })} on number ${c.phone} (Reason: ${c.reason || "None"})`).join("\n");
         }
+        break;
+      }
+
+      case "ask_confirm_add": {
+        success = false;
+        reply = "Do you want me to add this person as a related person on your account?";
+        conversationState.set(conversationId, {
+          action: "confirm_add_related_person",
+          pendingData: {
+            name: fields.name,
+            email: fields.email,
+            phone: fields.phone,
+          }
+        });
+        break;
+      }
+
+      case "cancel_pending_add": {
+        success = false;
+        reply = "Okay, I won't add them. How else can I help you?";
         break;
       }
 

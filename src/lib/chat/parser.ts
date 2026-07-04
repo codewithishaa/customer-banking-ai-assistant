@@ -211,6 +211,14 @@ export function parseRegex(message: string, context: AccountContext): { action: 
     return { action: "update_account_holder", fields: { name: nameUpdateMatch[1].trim() } };
   }
 
+  // 0.1 Update account holder postal address checks
+  const addressUpdateMatch =
+    message.match(/(?:change|update)\s+(?:my\s+)?(?:postal\s+)?address\s+to\s*(.*)$/i) ||
+    message.match(/my\s+(?:postal\s+)?address\s+is\s+now\s*(.*)$/i);
+  if (addressUpdateMatch) {
+    return { action: "update_account_holder", fields: { address: addressUpdateMatch[1].trim() } };
+  }
+
   // 1. Read-only account queries
   if (text.includes("what is my name") || text.includes("my name")) {
     return { action: "read_account", fields: {} };
@@ -246,7 +254,15 @@ export function parseRegex(message: string, context: AccountContext): { action: 
   if (text.includes("account details") || text.includes("account summary") || text.includes("show my account")) {
     return { action: "read_account", fields: {} };
   }
-  if (text.includes("show people linked to my account") || text.includes("show related people") || text.includes("linked to my account")) {
+  if (
+    text.includes("show people related to me") ||
+    text.includes("show the people linked to me") ||
+    text.includes("who is linked to my account") ||
+    text.includes("who can speak for me") ||
+    text.includes("show related people") ||
+    text.includes("linked to my account") ||
+    text.includes("show people linked to my account")
+  ) {
     return { action: "read_related_people", fields: {} };
   }
   if (text.includes("show my transactions") || text.includes("transaction history") || text.includes("previous transactions") || text.includes("transactions")) {
@@ -390,12 +406,6 @@ export function parseRegex(message: string, context: AccountContext): { action: 
   }
 
   // 6. Update account holder details
-  if (text.includes("change my address") || text.includes("update my address")) {
-    const match = message.match(/change my address to\s+(.+)$/i) || message.match(/update my address to\s+(.+)$/i);
-    if (match) {
-      return { action: "update_account_holder", fields: { address: match[1].trim() } };
-    }
-  }
   if (text.includes("change my email") || text.includes("update my email") || text.includes("change my phone") || text.includes("update my phone") || text.includes("change phone number to")) {
     const phoneMatch = message.match(/(\+\d{8,15})/);
     const emailMatch = message.match(/([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)/);
