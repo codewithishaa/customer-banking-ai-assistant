@@ -524,6 +524,44 @@ describe("chat action acceptance contracts", () => {
       expect(bodyRead.result.reply).toBe("Your postal address is 12 Test Street, Dublin 2, Ireland.");
     });
 
+    it("postal address update preserves the exact user-provided address and does not merge old address components like Rathmines", async () => {
+      mockContext.account.address = {
+        line1: "12 River Walk",
+        line2: "Rathmines",
+        city: "Dublin",
+        postalCode: "D06 X123",
+        country: "Ireland",
+      };
+
+      // 1. Update address
+      const reqUpdate = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "Change my postal address to 12 GrandCanal, Dublin 8, Ireland.",
+        }),
+      });
+      const resUpdate = await POST(reqUpdate);
+      const bodyUpdate = await resUpdate.json();
+
+      expect(resUpdate.status).toBe(200);
+      expect(bodyUpdate.result.success).toBe(true);
+
+      // 2. Read back address
+      const reqRead = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "What is my address?",
+        }),
+      });
+      const resRead = await POST(reqRead);
+      const bodyRead = await resRead.json();
+      expect(bodyRead.result.reply).toBe("Your postal address is 12 GrandCanal, Dublin 8, Ireland.");
+      expect(bodyRead.result.reply).not.toContain("Rathmines");
+      expect(bodyRead.result.reply).not.toContain("D06 X123");
+    });
+
     it("invalid/empty postal address rejection", async () => {
       const invalidAddresses = [
         "Change my postal address to ",
