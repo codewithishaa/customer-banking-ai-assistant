@@ -37,7 +37,8 @@ export async function generateEncryptedAccountPdf(
 
       doc.fontSize(14).text("Contact Details", { underline: true });
       doc.moveDown(0.5);
-      doc.fontSize(12).text(`Name: ${context.account.accountHolderFirstName} ${context.account.accountHolderLastName}`);
+      const fullName = [context.account.accountHolderFirstName, context.account.accountHolderLastName].filter(Boolean).join(" ");
+      doc.fontSize(12).text(`Name: ${fullName}`);
       doc.text(`Email: ${context.account.email}`);
       doc.text(`Phone: ${context.account.phone}`);
       doc.text(`Preferred Contact Method: ${context.account.preferredContactMethod.toUpperCase()}`);

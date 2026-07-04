@@ -90,9 +90,8 @@ describe("chat action acceptance contracts", () => {
 
     mockFetchAccountContext.mockResolvedValue(mockContext);
     mockUpdateAccountHolder.mockImplementation((id, updates) => {
-      const merged = { ...mockContext };
-      merged.account = { ...merged.account, ...updates };
-      return Promise.resolve(merged);
+      mockContext.account = { ...mockContext.account, ...updates };
+      return Promise.resolve(mockContext);
     });
     mockAddRelatedPerson.mockImplementation((id, p) => {
       const merged = { ...mockContext };
@@ -369,6 +368,116 @@ describe("chat action acceptance contracts", () => {
       const body = await res.json();
       expect(body.result.action).toBe("read_account");
       expect(body.result.reply).toBe("Your name on the account is Jane Murphy.");
+    });
+
+    it("Change my name to David updates the account holder name and triggers notification", async () => {
+      const req = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "Change my name to David",
+        }),
+      });
+
+      const res = await POST(req);
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.result.success).toBe(true);
+      expect(body.result.action).toBe("update_account_holder");
+      expect(body.result.reply).toContain("David");
+      expect(mockUpdateAccountHolder).toHaveBeenCalledWith("acc_standard_001", {
+        accountHolderFirstName: "David",
+        accountHolderLastName: "",
+      });
+      expect(mockSendNotification).toHaveBeenCalled();
+    });
+
+    it("What is my name? returns the updated name after update", async () => {
+      // 1. Update the name
+      const reqUpdate = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "Change my name to David",
+        }),
+      });
+      await POST(reqUpdate);
+
+      // 2. Query the name
+      const reqQuery = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "What is my name?",
+        }),
+      });
+      const res = await POST(reqQuery);
+      const body = await res.json();
+
+      expect(res.status).toBe(200);
+      expect(body.result.action).toBe("read_account");
+      expect(body.result.reply).toBe("Your name on the account is David.");
+    });
+
+    it("empty/invalid name is rejected", async () => {
+      const invalidNames = [
+        "Change my name to ",
+        "Update my name to 123",
+        "My name should be David1",
+        "Change my name to a",
+        "Change my name to ???",
+      ];
+
+      for (const nameMessage of invalidNames) {
+        const req = new Request("http://localhost/api/chat", {
+          method: "POST",
+          body: JSON.stringify({
+            accountId: "acc_standard_001",
+            message: nameMessage,
+          }),
+        });
+
+        const res = await POST(req);
+        const body = await res.json();
+        expect(body.result.success).toBe(false);
+        expect(body.result.reply).toContain("invalid");
+      }
+    });
+
+    it("invalid name update does not trigger notification or update db", async () => {
+      mockSendNotification.mockClear();
+      mockUpdateAccountHolder.mockClear();
+
+      const req = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "Change my name to David123",
+        }),
+      });
+
+      const res = await POST(req);
+      const body = await res.json();
+
+      expect(body.result.success).toBe(false);
+      expect(mockUpdateAccountHolder).not.toHaveBeenCalled();
+      expect(mockSendNotification).not.toHaveBeenCalled();
+    });
+
+    it("read-name question does not trigger notification", async () => {
+      mockSendNotification.mockClear();
+
+      const req = new Request("http://localhost/api/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          accountId: "acc_standard_001",
+          message: "What is my name?",
+        }),
+      });
+
+      await POST(req);
+      expect(mockSendNotification).not.toHaveBeenCalled();
     });
 
     it("postal address lookup", async () => {

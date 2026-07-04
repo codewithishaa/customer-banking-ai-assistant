@@ -203,6 +203,14 @@ Do not write markdown formatting, only output raw JSON.`;
 export function parseRegex(message: string, context: AccountContext): { action: ChatAction; fields: ExtractedFields } {
   const text = message.toLowerCase().trim();
 
+  // 0. Update account holder name checks (do this first so we don't accidentally intercept name updates in read_account queries)
+  const nameUpdateMatch =
+    message.match(/(?:change|update)\s+(?:my\s+)?(?:account\s+holder\s+)?(?:full\s+)?name\s+to\s*(.*)$/i) ||
+    message.match(/my\s+name\s+should\s+be\s*(.*)$/i);
+  if (nameUpdateMatch) {
+    return { action: "update_account_holder", fields: { name: nameUpdateMatch[1].trim() } };
+  }
+
   // 1. Read-only account queries
   if (text.includes("what is my name") || text.includes("my name")) {
     return { action: "read_account", fields: {} };
@@ -382,12 +390,6 @@ export function parseRegex(message: string, context: AccountContext): { action: 
   }
 
   // 6. Update account holder details
-  if (text.includes("change my name") || text.includes("update my name")) {
-    const match = message.match(/change my name to\s+(.+)$/i) || message.match(/update my name to\s+(.+)$/i);
-    if (match) {
-      return { action: "update_account_holder", fields: { name: match[1].trim() } };
-    }
-  }
   if (text.includes("change my address") || text.includes("update my address")) {
     const match = message.match(/change my address to\s+(.+)$/i) || message.match(/update my address to\s+(.+)$/i);
     if (match) {

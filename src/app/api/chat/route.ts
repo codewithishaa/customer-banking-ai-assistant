@@ -50,6 +50,14 @@ export async function POST(request: Request) {
       return emailStr.includes("@") && emailStr.includes(".");
     };
 
+    const isValidName = (nameStr: string) => {
+      const trimmed = nameStr.trim();
+      if (trimmed.length < 2) return false;
+      if (/\d/.test(trimmed)) return false;
+      if (!/[a-zA-Z]/.test(trimmed)) return false;
+      return true;
+    };
+
     const isDateInPast = (dateStr: string) => {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -64,7 +72,8 @@ export async function POST(request: Request) {
         const text = message.toLowerCase().trim();
 
         if (text.includes("what is my name") || text.includes("my name")) {
-          reply = `Your name on the account is ${acc.accountHolderFirstName} ${acc.accountHolderLastName}.`;
+          const fullName = [acc.accountHolderFirstName, acc.accountHolderLastName].filter(Boolean).join(" ");
+          reply = `Your name on the account is ${fullName}.`;
         } else if (
           text.includes("email address is on my account") ||
           text.includes("what email") ||
@@ -117,7 +126,8 @@ export async function POST(request: Request) {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
           });
-          reply = `Your account details are as follows:\n- Full Name: ${acc.accountHolderFirstName} ${acc.accountHolderLastName}\n- Email: ${acc.email}\n- Phone: ${acc.phone}\n- Address: ${addr}\n- Preferred Contact Method: ${acc.preferredContactMethod.toLowerCase()}\n- Current Balance: €${balanceFormatted}\n- Creditor: ${acc.creditorName}\n- Reference: ${acc.reference}`;
+          const fullName = [acc.accountHolderFirstName, acc.accountHolderLastName].filter(Boolean).join(" ");
+          reply = `Your account details are as follows:\n- Full Name: ${fullName}\n- Email: ${acc.email}\n- Phone: ${acc.phone}\n- Address: ${addr}\n- Preferred Contact Method: ${acc.preferredContactMethod.toLowerCase()}\n- Current Balance: €${balanceFormatted}\n- Creditor: ${acc.creditorName}\n- Reference: ${acc.reference}`;
         }
         break;
       }
@@ -142,9 +152,9 @@ export async function POST(request: Request) {
         }
         if (fields.name !== undefined) {
           const nameStr = fields.name.trim();
-          if (!nameStr) {
+          if (!isValidName(nameStr)) {
             success = false;
-            reply = "The name you provided is invalid.";
+            reply = "The name you provided is invalid. Please provide a valid name.";
             break;
           }
           const nameParts = nameStr.split(/\s+/);
@@ -172,7 +182,12 @@ export async function POST(request: Request) {
           reply = "I couldn't identify any contact fields to update. Please specify what you would like to change (e.g. email or phone number).";
         } else {
           refreshedContext = await updateAccountHolder(accountId, updates);
-          reply = "I have successfully updated your account contact details.";
+          if (updates.accountHolderFirstName !== undefined) {
+            const fullName = [updates.accountHolderFirstName, updates.accountHolderLastName].filter(Boolean).join(" ");
+            reply = `I have updated the account holder name to ${fullName}.`;
+          } else {
+            reply = "I have successfully updated your account contact details.";
+          }
           notificationQueued = true;
         }
         break;
