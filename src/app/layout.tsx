@@ -1,21 +1,15 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+const inter = Inter({
+  variable: "--font-inter",
   subsets: ["latin"],
 });
 
 export const metadata: Metadata = {
-  title: "Account Self-Service Chatbot",
-  description:
-    "A minimal account self-service chatbot challenge starter.",
+  title: "Customer Banking AI Assistant",
+  description: "Intelligent Banking. Smarter Conversations.",
 };
 
 export default function RootLayout({
@@ -26,11 +20,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-        style={{ fontFamily: "var(--font-geist-sans), system-ui, sans-serif" }}
+        className={`${inter.variable} antialiased`}
+        style={{ fontFamily: "var(--font-inter), system-ui, sans-serif" }}
       >
         {children}
       </body>
     </html>
   );
 }
+

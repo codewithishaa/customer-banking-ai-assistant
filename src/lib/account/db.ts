@@ -25,7 +25,7 @@ export function mapDbToAccountContext(
 
   // Determine metadata based on account type
   let lastStatementAmountCents = 116000;
-  let dueDate = "2026-01-24";
+  let dueDate = "2026-09-30";
   let supportPhone = "+35318000000";
   let supportEmail = "support@example.test";
   let recentStatementReason = "Higher winter usage and one missed direct debit";
@@ -33,14 +33,14 @@ export function mapDbToAccountContext(
 
   if (accountId.includes("dispute")) {
     lastStatementAmountCents = 47200;
-    dueDate = "2026-02-07";
+    dueDate = "2026-09-30";
     supportPhone = "+35318000001";
     supportEmail = "billing-disputes@example.test";
     recentStatementReason = "Includes roaming charges and an early contract termination fee";
     riskFlags = { disputeOpen: false, requiresHumanForBillingChallenge: true };
   } else if (accountId.includes("hardship")) {
     lastStatementAmountCents = 148100;
-    dueDate = "2026-01-03";
+    dueDate = "2026-09-30";
     supportPhone = "+35318000002";
     supportEmail = "support-hardship@example.test";
     recentStatementReason = "Balance carried forward with late fees applied";

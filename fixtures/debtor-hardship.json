@@ -26,7 +26,7 @@
   "billing": {
     "currentAmountCents": 156200,
     "lastStatementAmountCents": 148100,
-    "dueDate": "2026-01-03"
+    "dueDate": "2026-09-30"
   },
   "paymentOptions": {
     "payNowEnabled": true,
